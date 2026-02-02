@@ -1,0 +1,16 @@
+# Go binaries
+/bin/
+/dist/
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+# *.test
+*.out
+
+# Go workspace
+go.work
+
