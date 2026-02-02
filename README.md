@@ -1,3 +1,3 @@
 # Shell
 
-A custom shell written in Go.
+Coding my own shell
