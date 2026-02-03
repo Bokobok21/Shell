@@ -25,8 +25,19 @@ func main() {
 		case "":
 			fmt.Println()
 
+		case "type":
+			if len(args) == 0 {
+				fmt.Println()
+			} else {
+				if _, exists := get_method_bound_to_command(args[0]); exists {
+					fmt.Println(args[0] + " is a shell builtin")
+				} else {
+					fmt.Println(args[0] + ": not found")
+				}
+			}
+
 		default:
-			comand_func, exists := known_commands[command]
+			comand_func, exists := get_method_bound_to_command(command)
 
 			if exists {
 				comand_func(args...)
@@ -42,8 +53,16 @@ func main() {
 type commands map[string]func(args ...string)
 
 var known_commands = commands{
-	"echo": func(args ...string) { fmt.Println(strings.Join(args, " ")) },
 	"exit": func(args ...string) { os.Exit(0) },
+
+	"echo": func(args ...string) { fmt.Println(strings.Join(args, " ")) },
+
+	"type": func(args ...string) { /* returns the type (done separately) */ },
+}
+
+func get_method_bound_to_command(command string) (func(args ...string), bool) {
+	comand_func, exists := known_commands[command]
+	return comand_func, exists
 }
 
 func parse_command(input string) (string, []string) {
@@ -55,3 +74,4 @@ func parse_command(input string) (string, []string) {
 
 	return parts[0], nil
 }
+
