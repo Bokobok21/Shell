@@ -50,6 +50,21 @@ var known_commands = commands{
 	"echo": func(args ...string) { fmt.Println(strings.Join(args, " ")) },
 
 	"type": func(args ...string) { /* returns the type (done separately) */ },
+
+	"pwd": func(args ...string) {
+		if current_dir, err := os.Getwd(); err != nil {
+			fmt.Fprintln(os.Stderr, "pwd:", err)
+		} else {
+			fmt.Println(current_dir)
+		}
+	},
+
+	"cd": func(args ...string) {
+		err := os.Chdir(args[0])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cd:", args[0]+":", "No such file or directory")
+		}
+	},
 }
 
 var (
@@ -83,6 +98,7 @@ func handle_command(command string, args []string) {
 		return
 	}
 
+	//use CommandContext?
 	cmd := exec.Command(command, args...)
 	std_out, _ := cmd.CombinedOutput()
 
