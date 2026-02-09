@@ -14,6 +14,9 @@ import (
 func main() {
 	var multi_string strings.Builder
 	var in_new_line bool
+	var command string
+	var args []string
+	var needs_more bool
 
 	for {
 		fmt.Print("$ ")
@@ -30,16 +33,18 @@ func main() {
 			}
 
 			multi_string.WriteString(raw_string)
-			in_new_line = true
 
-			if !strings.HasSuffix(raw_string, "\\\n") {
-				in_new_line = false
-				break
+			command, args, needs_more = parse_command(multi_string.String())
+
+			if needs_more {
+				in_new_line = true
+				continue
 			}
-		}
 
-		command, args := parse_command(multi_string.String())
-		multi_string.Reset()
+			in_new_line = false
+			multi_string.Reset()
+			break
+		}
 
 		switch command {
 
@@ -103,7 +108,7 @@ func init() {
 				fmt.Fprintln(os.Stderr, "cd:", args[0]+":", "No such file or directory")
 				return
 			}
-			// handle_output("ls")
+			handle_output("ls")
 		},
 	}
 }
@@ -209,94 +214,97 @@ func get_method_bound_to_command(command string) (func(args ...string), bool) {
 	return comand_func, exists
 }
 
-func parse_command(input string) (string, []string) {
+type lexar_state struct {
+	in_single_quotes bool
+	in_double_quotes bool
+	escape_next      bool
+}
+
+type lexar_output struct {
+	tokens []string
+	state  lexar_state
+}
+
+func parse_command(input string) (string, []string, bool) {
 	trimmed := strings.TrimSpace(input)
 
 	if trimmed == "" {
-		return "", nil
+		return "", nil, false
 	}
 
-	//implemeinting new stage
-	var quote_type string = " "
+	output := lex_input(trimmed)
 
-	if strings.HasPrefix(trimmed, "\"") {
-		quote_type = "\""
-	} else if strings.HasPrefix(trimmed, "'") {
-		quote_type = "'"
+	needs_more :=
+		output.state.escape_next ||
+			output.state.in_double_quotes ||
+			output.state.in_single_quotes
+
+	if needs_more {
+		return "", nil, true
 	}
 
-	without_quote, _ := strings.CutPrefix(trimmed, quote_type)
+	command := output.tokens[0]
+	arguments_slice := output.tokens[1:]
 
-	command, arguments, exists := strings.Cut(without_quote, quote_type)
+	return command, arguments_slice, false
+}
 
-	if quote_type == "\"" {
-		command = strings.ReplaceAll(command, "\\\\", "\\")
-		command = strings.ReplaceAll(command, "\\\"", "\"")
-		command = strings.ReplaceAll(command, "\\$", "$")
-		command = strings.ReplaceAll(command, "\\`", "`")
-	}
-
-	if !exists {
-		return command, nil
-	}
-
+func lex_input(arguments string) lexar_output {
 	var args []string
 	var current strings.Builder
-	inOuterQuote := false
-	inQuote := false
-	preserve_next := false
+	state := lexar_state{}
 
 	for _, r := range arguments {
 
-		if preserve_next {
+		if state.escape_next {
 			if r == '\n' {
-				preserve_next = false
+				state.escape_next = false
 				continue
+			}
+			if state.in_double_quotes {
+				if r != '$' && r != '`' && r != '\\' && r != '"' {
+					current.WriteRune('\\')
+					state.escape_next = false
+				}
 			}
 		}
 
 		switch r {
 
 		case '\\':
-			if preserve_next || inQuote {
+			if state.escape_next || state.in_single_quotes {
 				current.WriteRune(r)
-				preserve_next = false
+				state.escape_next = false
 			} else {
-				preserve_next = true
+				state.escape_next = true
 			}
 
 		case '"':
-			if preserve_next {
-				if r == '\n' {
-					preserve_next = false
-					continue
-				}
-			}
-			if preserve_next || inQuote {
+			if state.escape_next || state.in_single_quotes {
 				current.WriteRune(r)
-				preserve_next = false
+				state.escape_next = false
 			} else {
-				inOuterQuote = !inOuterQuote
+				state.in_double_quotes = !state.in_double_quotes
 			}
 
 		case '\'':
-			if preserve_next {
+			if state.escape_next {
 				current.WriteRune(r)
-				preserve_next = false
+				state.escape_next = false
 			} else {
-				if !inOuterQuote {
-					inQuote = !inQuote
+				if !state.in_double_quotes {
+					state.in_single_quotes = !state.in_single_quotes
 				} else {
 					current.WriteRune(r)
 				}
 			}
 
 		case ' ':
-			if preserve_next {
+			if state.escape_next {
 				current.WriteRune(r)
-				preserve_next = false
+				state.escape_next = false
 			} else {
-				if inQuote || inOuterQuote {
+				if state.in_single_quotes || state.in_double_quotes {
 					current.WriteRune(r)
 				} else if current.Len() > 0 {
 					args = append(args, current.String())
@@ -305,23 +313,17 @@ func parse_command(input string) (string, []string) {
 			}
 
 		default:
-			if preserve_next {
-				preserve_next = false
-
-				if inOuterQuote {
-					if r != '$' && r != '`' {
-						current.WriteRune('\\')
-					}
-				}
-			}
 			current.WriteRune(r)
 		}
 
 	}
-	// end of input
+
 	if current.Len() > 0 {
 		args = append(args, current.String())
 	}
 
-	return command, args
+	return lexar_output{
+		tokens: args,
+		state:  state,
+	}
 }
