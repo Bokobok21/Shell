@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"unicode"
 )
 
 func main() {
@@ -254,8 +255,16 @@ func parse_command(input string) (string, []string, bool) {
 		return "", nil, true
 	}
 
-	command := output.tokens[0]
-	arguments_slice := output.tokens[1:]
+	var expanded []string
+	for _, tok := range output.tokens {
+		val := ExpandVars(tok)
+		if val != "" {
+			expanded = append(expanded, val)
+		}
+	}
+
+	command := expanded[0]
+	arguments_slice := expanded[1:]
 
 	return command, arguments_slice, false
 }
@@ -340,4 +349,49 @@ func lex_input(arguments string) lexar_output {
 		tokens: args,
 		state:  state,
 	}
+}
+
+func isCharValidInVar(r rune, pos int) bool {
+	if pos == 0 {
+		return unicode.IsLetter(r) || r == '_'
+	}
+	return unicode.IsDigit(r) || unicode.IsLetter(r) || r == '_'
+}
+
+func ExpandVars(s string) string {
+	var out strings.Builder
+
+	for i := 0; i < len(s); {
+		if s[i] != '$' {
+			out.WriteByte(s[i])
+			i++
+			continue
+		}
+
+		i++
+
+		if i >= len(s) {
+			out.WriteByte('$')
+			break
+		}
+
+		start := i
+		for i < len(s) {
+			if isCharValidInVar(rune(s[i]), i-start) {
+				i++
+			} else {
+				if unicode.IsDigit(rune(s[i])) {
+					i++
+				}
+				break
+			}
+		}
+
+		name := s[start:i]
+
+		value := os.Getenv(name)
+		out.WriteString(value)
+	}
+
+	return out.String()
 }
