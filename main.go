@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -89,7 +90,16 @@ NextPrompt:
 			handle_type_case(args[0])
 
 		default:
+			signal.Stop(interrupt_sig)
+
 			handle_command(command, args)
+
+			select {
+			case <-interrupt_sig:
+			default:
+			}
+
+			signal.Notify(interrupt_sig, os.Interrupt)
 		}
 
 	}
@@ -181,7 +191,22 @@ func handle_command(command string, args []string) {
 var lastExitCode int
 
 func handle_output(command string, args ...string) {
-	cmd := exec.Command(command, args...)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cmd := exec.CommandContext(ctx, command, args...)
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	defer signal.Stop(sig)
+
+	go func() {
+		select {
+		case <-sig:
+			cancel()
+
+		case <-ctx.Done():
+		}
+	}()
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -340,6 +365,7 @@ func lex_input(arguments string) lexar_output {
 					if state.in_single_quotes {
 						arg_state.ShouldBeLiteral = true
 					}
+
 				} else {
 					current.WriteRune(r)
 				}
