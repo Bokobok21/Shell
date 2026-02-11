@@ -233,8 +233,17 @@ type lexar_state struct {
 }
 
 type lexar_output struct {
-	tokens []string
+	tokens []token
 	state  lexar_state
+}
+
+type token struct {
+	value string
+	state token_state
+}
+
+type token_state struct {
+	ShouldBeLiteral bool
 }
 
 func parse_command(input string) (string, []string, bool) {
@@ -256,8 +265,15 @@ func parse_command(input string) (string, []string, bool) {
 	}
 
 	var expanded []string
+	var val string
 	for _, tok := range output.tokens {
-		val := ExpandVars(tok)
+
+		if tok.state.ShouldBeLiteral {
+			val = tok.value
+		} else {
+			val = ExpandVars(tok)
+		}
+
 		if val != "" {
 			expanded = append(expanded, val)
 		}
@@ -270,9 +286,10 @@ func parse_command(input string) (string, []string, bool) {
 }
 
 func lex_input(arguments string) lexar_output {
-	var args []string
+	args := []token{}
 	var current strings.Builder
 	state := lexar_state{}
+	arg_state := token_state{}
 
 	for _, r := range arguments {
 
@@ -281,11 +298,16 @@ func lex_input(arguments string) lexar_output {
 				state.escape_next = false
 				continue
 			}
+
 			if state.in_double_quotes {
 				if r != '$' && r != '`' && r != '\\' && r != '"' {
 					current.WriteRune('\\')
 					state.escape_next = false
 				}
+			}
+
+			if r == '$' || r == '`' {
+				arg_state.ShouldBeLiteral = true
 			}
 		}
 
@@ -314,6 +336,10 @@ func lex_input(arguments string) lexar_output {
 			} else {
 				if !state.in_double_quotes {
 					state.in_single_quotes = !state.in_single_quotes
+
+					if state.in_single_quotes {
+						arg_state.ShouldBeLiteral = true
+					}
 				} else {
 					current.WriteRune(r)
 				}
@@ -327,7 +353,8 @@ func lex_input(arguments string) lexar_output {
 				if state.in_single_quotes || state.in_double_quotes {
 					current.WriteRune(r)
 				} else if current.Len() > 0 {
-					args = append(args, current.String())
+					args = append(args, token{value: current.String(), state: arg_state})
+					arg_state.ShouldBeLiteral = false
 					current.Reset()
 				}
 			}
@@ -342,7 +369,8 @@ func lex_input(arguments string) lexar_output {
 	}
 
 	if current.Len() > 0 {
-		args = append(args, current.String())
+		args = append(args, token{value: current.String(), state: arg_state})
+		arg_state.ShouldBeLiteral = false
 	}
 
 	return lexar_output{
@@ -358,36 +386,36 @@ func isCharValidInVar(r rune, pos int) bool {
 	return unicode.IsDigit(r) || unicode.IsLetter(r) || r == '_'
 }
 
-func ExpandVars(s string) string {
+func ExpandVars(s token) string {
 	var out strings.Builder
 
-	for i := 0; i < len(s); {
-		if s[i] != '$' {
-			out.WriteByte(s[i])
+	for i := 0; i < len(s.value); {
+		if s.value[i] != '$' {
+			out.WriteByte(s.value[i])
 			i++
 			continue
 		}
 
 		i++
 
-		if i >= len(s) {
+		if i >= len(s.value) {
 			out.WriteByte('$')
 			break
 		}
 
 		start := i
-		for i < len(s) {
-			if isCharValidInVar(rune(s[i]), i-start) {
+		for i < len(s.value) {
+			if isCharValidInVar(rune(s.value[i]), i-start) {
 				i++
 			} else {
-				if unicode.IsDigit(rune(s[i])) {
+				if unicode.IsDigit(rune(s.value[i])) {
 					i++
 				}
 				break
 			}
 		}
 
-		name := s[start:i]
+		name := s.value[start:i]
 
 		value := os.Getenv(name)
 		out.WriteString(value)
