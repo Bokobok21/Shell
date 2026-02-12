@@ -83,14 +83,6 @@ NextPrompt:
 			fmt.Println()
 			lastExitCode = 0
 
-		case "type":
-			if len(args) == 0 {
-				lastExitCode = 0
-				fmt.Println()
-				break
-			}
-			handle_type_case(args[0])
-
 		default:
 			signal.Stop(interrupt_sig)
 
@@ -117,7 +109,28 @@ func init() {
 
 		"echo": func(args ...string) { fmt.Println(strings.Join(args, " ")); lastExitCode = 0 },
 
-		"type": func(args ...string) { /* returns the type (done separately) */ },
+		"type": func(args ...string) {
+			if len(args) == 0 {
+				lastExitCode = 0
+				fmt.Println()
+				return
+			}
+			for _, v := range args {
+				if _, exists := get_method_bound_to_command(v); exists {
+					lastExitCode = 0
+					fmt.Println(v + " is a shell builtin")
+				} else {
+					path, err := resolve_command(v)
+					if err != nil {
+						lastExitCode = 1
+						fmt.Println(v + ": not found")
+					} else {
+						lastExitCode = 0
+						fmt.Println(v + " is " + path)
+					}
+				}
+			}
+		},
 
 		"pwd": func(args ...string) {
 			if current_dir, err := os.Getwd(); err != nil {
@@ -283,24 +296,6 @@ func handle_output(command string, args []string, outputFile string) {
 	} else {
 		lastExitCode = 1
 	}
-}
-
-func handle_type_case(cmd string) {
-	if _, exists := get_method_bound_to_command(cmd); exists {
-		lastExitCode = 0
-		fmt.Println(cmd + " is a shell builtin")
-		return
-	}
-
-	path, err := resolve_command(cmd)
-	if err != nil {
-		lastExitCode = 1
-		fmt.Println(cmd + ": not found")
-		return
-	}
-
-	lastExitCode = 0
-	fmt.Println(cmd + " is " + path)
 }
 
 func resolve_command(cmd string) (string, error) {
