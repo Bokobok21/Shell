@@ -1,3 +1,3 @@
-module github.com/Bokobok21/Shell
+module github.com/bozhanov21/Shell
 
 go 1.22.4
