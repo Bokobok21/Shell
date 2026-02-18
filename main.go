@@ -1,82 +1,86 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
 	"unicode"
+
+	"github.com/chzyer/readline"
 )
 
 func main() {
+	completer := readline.NewPrefixCompleter(
+		readline.PcItem("echo"),
+		readline.PcItem("exit"),
+	)
+
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:       "$ ",
+		AutoComplete: completer,
+		EOFPrompt:    "exit",
+	})
+
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error reading input", err)
+		os.Exit(1)
+	}
+	defer rl.Close()
+
 	var multi_string strings.Builder
 	var in_new_line bool
 	var command string
 	var args []string
 	var needs_more bool
 
-	interrupt_sig := make(chan os.Signal, 1)
-	input_sig := make(chan string, 1)
-	signal.Notify(interrupt_sig, os.Interrupt)
-	defer signal.Stop(interrupt_sig)
-
-	go func() {
-		defer close(input_sig)
-
-		for {
-			raw_string, err := bufio.NewReader(os.Stdin).ReadString('\n')
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "Error reading input", err)
-				os.Exit(1)
-				return
-			}
-
-			input_sig <- raw_string
-		}
-	}()
-
 NextPrompt:
 	for {
-		fmt.Print("$ ")
 
 	Input:
 		for {
+
 			if in_new_line {
-				fmt.Print(". ")
+				rl.SetPrompt(". ")
+			} else {
+				rl.SetPrompt("$ ")
 			}
 
-			select {
+			line, err := rl.Readline()
 
-			case <-interrupt_sig:
-				fmt.Println()
-				in_new_line = false
+			if err == readline.ErrInterrupt {
 				multi_string.Reset()
+				in_new_line = false
 				command = ""
-				goto NextPrompt
-
-			case raw_string, ok := <-input_sig:
-				if !ok {
-					os.Exit(0)
-				}
-
-				multi_string.WriteString(raw_string)
-
-				command, args, needs_more = parse_command(multi_string.String())
-
-				if needs_more {
-					in_new_line = true
-					continue
-				}
-
-				in_new_line = false
-				multi_string.Reset()
-				break Input
+				fmt.Println()
+				continue NextPrompt
 			}
+
+			if err == io.EOF {
+				fmt.Println("exit")
+				return
+			}
+
+			multi_string.WriteString(line)
+			multi_string.WriteByte('\n')
+
+			command, args, needs_more = parse_command(multi_string.String())
+
+			if needs_more {
+				in_new_line = true
+				continue Input
+			}
+
+			in_new_line = false
+			multi_string.Reset()
+			break Input
+
 		}
+
 		switch command {
 
 		case "":
@@ -84,16 +88,7 @@ NextPrompt:
 			lastExitCode = 0
 
 		default:
-			signal.Stop(interrupt_sig)
-
 			handle_command(command, args)
-
-			select {
-			case <-interrupt_sig:
-			default:
-			}
-
-			signal.Notify(interrupt_sig, os.Interrupt)
 		}
 
 	}
